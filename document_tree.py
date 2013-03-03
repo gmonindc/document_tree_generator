@@ -5,7 +5,9 @@ import os
 import re
 import cPickle
 
-number_of_words=150
+number_of_words=200
+max_documents=5000
+max_read=10000
 
 def wordcount(txt):
 	
@@ -24,11 +26,11 @@ def find_dissimilar_documents(file_list):
 	for fn1 in file_list[:len(file_list)/2]:
 		for fn2 in file_list[len(file_list)/2:]:
 			f=open(fn1)
-			txt=f.read()[:10000]
+			txt=f.read(max_read)
 			f.close()
 			rwcnt=wordcount(txt)
 			f=open(fn2)
-			txt=f.read()[:10000]
+			txt=f.read(max_read)
 			f.close()
 			lwcnt=wordcount(txt)
 			collision=0
@@ -41,6 +43,18 @@ def find_dissimilar_documents(file_list):
 				lowscore=float(collision)
 				right_kw=dict(rwcnt)
 				left_kw=dict(lwcnt)
+	if len(right_kw)>number_of_words:
+		kwl=right_kw.keys()
+		for kw in kwl:
+			if random.random()>1.0*number_of_words/len(right_kw):
+				del right_kw[kw]
+	if len(left_kw)>number_of_words:
+		kwl=left_kw.keys()
+		for kw in kwl:
+			if random.random()>1.0*number_of_words/len(left_kw):
+				del left_kw[kw]
+	print len(right_kw)
+	print len(left_kw)
 	return right_kw,left_kw
 
 #check a new set of documents and check to see if they are more like the first or second word list
@@ -49,14 +63,15 @@ def split_document_list_with_keywords(file_list,bestrw,bestlw):
 	scoredict={}
 	for fn in file_list:
 		f=open(fn)
-		txt=f.read()
+		txt=f.read(max_read)
 		f.close()
 		score=random.random()/100.0
+		wcnt=wordcount(txt)
 		for kw in bestrw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				score+=1
 		for kw in bestlw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				score-=1
 		scoredict[fn]=score
 
@@ -80,7 +95,7 @@ def generate_split_keywords_from_document_lists(rightlist,leftlist):
 	#words on the right are scored +1
 	for fn in rightlist:
 		f=open(fn)
-		txt=f.read()
+		txt=f.read(max_read)
 		f.close()
 		wcnt=wordcount(txt)
 		for w in wcnt:
@@ -89,12 +104,12 @@ def generate_split_keywords_from_document_lists(rightlist,leftlist):
 				net_count[w]+=1
 			else:
 				word_score[w]=1+random.random()/100.0
-				net_count[w]=1
+				net_count[w]=1+random.random()/100.0
 
 	#words on the left are scored -1
 	for fn in leftlist:
 		f=open(fn)
-		txt=f.read()
+		txt=f.read(max_read)
 		f.close()
 		wcnt=wordcount(txt)
 		for w in wcnt:
@@ -103,14 +118,14 @@ def generate_split_keywords_from_document_lists(rightlist,leftlist):
 				net_count[w]+=1
 			else:
 				word_score[w]=-1+random.random()/100.0
-				net_count[w]=1
+				net_count[w]=1+random.random()/100.0
 
 	net_count_scores=net_count.values()
 	net_count_scores.sort()
 
-	#words must be used more than the mode
+	#delete words less than the mode or extremely frequent
 	for w in net_count:
-		if net_count[w]<net_count_scores[len(net_count_scores)/2]:
+		if net_count[w]<net_count_scores[len(net_count_scores)/2] or net_count[w]>net_count_scores[98*len(net_count_scores)/100]:
 			del word_score[w]
 
 	score_list=word_score.values()
@@ -136,7 +151,7 @@ def split_document_list(file_list):
 	for i in range(interations):
 		tmp_filelist=list(file_list)
 		random.shuffle(tmp_filelist)
-		right_doc_list,left_doc_list=split_document_list_with_keywords(tmp_filelist[:100],right_kw,left_kw)
+		right_doc_list,left_doc_list=split_document_list_with_keywords(tmp_filelist[:500],right_kw,left_kw)
 		right_kw,left_kw=generate_split_keywords_from_document_lists(right_doc_list,left_doc_list)
 		print right_kw
 		print left_kw
@@ -149,16 +164,17 @@ def add_doc(document_tree,fn):
 	spot='top'
 	doc_list,right_kw,left_kw=document_tree[spot]
 	f=open(fn)
-	txt=f.read()
+	txt=f.read(max_read)
+	wcnt=wordcount(txt)
 	f.close()
 	done=False
 	while not done:
 		right_score,left_score=0,0
 		for kw in right_kw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				right_score+=1
 		for kw in left_kw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				left_score+=1
 		if right_score>left_score:
 			spot+='r'
@@ -178,7 +194,7 @@ def rebalance_tree(document_tree):
 		dtl=document_tree.keys()
 		for dtk in dtl:
 			doc_list,right_kw,left_kw=document_tree[dtk]
-			if len(doc_list)>2000:
+			if len(doc_list)>max_documents:
 				print 'splitting',dtk,len(doc_list)
 				right_doc_list,left_doc_list,right_kw,left_kw=split_document_list(doc_list)
 				document_tree[dtk]=([],right_kw,left_kw)
@@ -189,16 +205,17 @@ def rebalance_tree(document_tree):
 
 
 def search_tree(document_tree,txt):
+	wcnt=wordcount(txt)
 	spot='top'
 	doc_list,right_kw,left_kw=document_tree[spot]
 	done=False
 	while not done:
 		right_score,left_score=0,0
 		for kw in right_kw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				right_score+=1
 		for kw in left_kw:
-			if string.find(txt.lower(),kw)>-1:
+			if wcnt.has_key(kw):
 				left_score+=1
 		if right_score>left_score:
 			spot+='r'
@@ -213,7 +230,7 @@ def search_tree(document_tree,txt):
 file_list=[]
 dlist=os.listdir('/home/gmoney/uspto/pats')
 random.shuffle(dlist)
-for directory in dlist[:4]:
+for directory in dlist[:2]:
 	print '/home/gmoney/uspto/pats/'+directory
 	for path,dirs,files in os.walk('/home/gmoney/uspto/pats/'+directory):
 		for f in files:
@@ -224,17 +241,18 @@ dlist=os.listdir('/home/gmoney/uspto/pgpub')
 random.shuffle(dlist)
 dlist2=os.listdir('/home/gmoney/uspto/pgpub/'+dlist[0])
 random.shuffle(dlist2)
-for directory in dlist2[:4]:
+for directory in dlist2[:3]:
 	print '/home/gmoney/uspto/pgpub/'+dlist[0]+'/'+directory
 	for path,dirs,files in os.walk('/home/gmoney/uspto/pgpub/'+dlist[0]+'/'+directory):
 		for f in files:
 			fn=path+'/'+f
 			file_list.append(fn)
 
+
 print 'documents to sort',len(file_list)
 
 try:
-	f=open('test_tree.bin')
+	f=open('test_tree2.bin')
 	document_tree=cPickle.load(f)
 	f.close()	
 except:	
@@ -244,8 +262,8 @@ except:
 	document_tree['topr']=(right_doc_list,[],[])
 	document_tree['topl']=(left_doc_list,[],[])
 
-#~ f=open('/home/gmoney/uspto/pgpub/2006/009/20060097625.txt')
-#~ txt=f.read()
+#~ f=open('/home/gmoney/uspto/pgpub/2012/022/20120225392.txt')
+#~ txt=f.read(max_read)
 #~ f.close()
 #~ for fn in search_tree(document_tree,txt):
 	#~ print fn
@@ -266,14 +284,12 @@ for fn in file_list:
 	if not used_dict.has_key(fn):
 		used_dict[fn]=1
 		document_tree=add_doc(document_tree,fn)
-	else:
-		print 'used',fn
-	if cnt % 100 == 0:
+	if cnt % 500 == 0:
 		print 100.0*cnt/len(file_list),'% done'
 
 document_tree=rebalance_tree(document_tree)
 
-f=open('test_tree.bin','wb')
+f=open('test_tree2.bin','wb')
 cPickle.dump(document_tree,f)
 f.close()
 
